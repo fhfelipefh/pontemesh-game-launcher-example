@@ -102,9 +102,10 @@ second configured launcher while the first is seeding. The transfer summary show
 bytes received from peers. Every peer fragment is still validated against the
 Origin-authorized manifest.
 
-The Compose Origin ports bind to `127.0.0.1` by default. A multi-machine test must
-place the Origin behind HTTPS and update `origin_url`; plaintext HTTP is accepted
-only for loopback addresses so the downloader token cannot cross the LAN unencrypted.
+The Compose Origin is reachable from the local network by default. On another
+launcher, set `origin_url` to the Server machine's LAN address, such as
+`http://192.168.1.50:8080`. HTTP and HTTPS are both supported; use this HTTP setup
+only on a network you trust and control.
 
 ## Failure and resume checks
 

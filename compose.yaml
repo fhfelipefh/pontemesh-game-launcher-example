@@ -13,8 +13,8 @@ services:
       PONTEMESH_S3_PORT: 9000
       RUST_LOG: pontemesh_server=info,tower_http=info
     ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:9000:9000"
+      - "8080:8080"
+      - "9000:9000"
     volumes:
       - pontemesh_home:/var/pontemesh_home
     depends_on:

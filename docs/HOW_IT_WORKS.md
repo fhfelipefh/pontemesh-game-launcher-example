@@ -93,7 +93,7 @@ Launcher A must remain running and advertise a reachable LAN address. The Origin
 continues to control discovery and authorization; a peer never becomes the authority
 for hashes or access.
 
-The default Compose Origin is loopback-only. For launchers on separate computers,
-publish the Origin through HTTPS and configure that URL on each launcher. Remote HTTP
-URLs are rejected because they would expose the bearer token and trusted control-plane
-responses to the network.
+The default Compose Origin is available to the local network. Launchers on separate
+computers can use the Server machine's LAN IP with HTTP or HTTPS. HTTP keeps the
+example simple for an isolated trusted LAN; HTTPS remains recommended whenever other
+network participants must not observe tokens or control-plane responses.

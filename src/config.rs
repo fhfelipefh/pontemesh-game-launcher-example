@@ -48,14 +48,11 @@ impl LauncherConfig {
         let origin = Url::parse(&self.origin_url)
             .map_err(|error| format!("origin_url must be a valid URL: {error}"))?;
         match origin.scheme() {
-            "https" => {}
-            "http" if is_loopback_origin(&origin) => {}
-            "http" => {
-                return Err(
-                    "origin_url must use HTTPS unless it points to the local computer".to_owned(),
-                )
-            }
+            "http" | "https" => {}
             _ => return Err("origin_url must use http:// or https://".to_owned()),
+        }
+        if origin.host_str().is_none() {
+            return Err("origin_url must include a host".to_owned());
         }
         for (name, value) in [
             ("application_token", self.application_token.as_str()),
@@ -74,16 +71,6 @@ impl LauncherConfig {
         }
         Ok(())
     }
-}
-
-fn is_loopback_origin(origin: &Url) -> bool {
-    origin.host_str().is_some_and(|host| {
-        let host = host.trim_start_matches('[').trim_end_matches(']');
-        host.eq_ignore_ascii_case("localhost")
-            || host
-                .parse::<std::net::IpAddr>()
-                .is_ok_and(|address| address.is_loopback())
-    })
 }
 
 fn default_origin_url() -> String {
@@ -134,15 +121,29 @@ release_bucket = "game-updates"
     }
 
     #[test]
-    fn accepts_plain_http_only_for_loopback_origins() {
+    fn accepts_http_origins_on_the_local_network() {
         let mut config = valid_config();
-        config.origin_url = "http://localhost:8080".to_owned();
-        assert!(config.validate().is_ok());
-
-        config.origin_url = "http://[::1]:8080".to_owned();
-        assert!(config.validate().is_ok());
-
         config.origin_url = "http://192.168.1.20:8080".to_owned();
+        assert!(config.validate().is_ok());
+
+        config.origin_url = "http://game-origin.local:8080".to_owned();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn accepts_https_without_requiring_it() {
+        let mut config = valid_config();
+        config.origin_url = "https://updates.example.com".to_owned();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_or_incomplete_origin_urls() {
+        let mut config = valid_config();
+        config.origin_url = "ftp://192.168.1.20/releases".to_owned();
+        assert!(config.validate().is_err());
+
+        config.origin_url = "not a URL".to_owned();
         assert!(config.validate().is_err());
     }
 
