@@ -14,6 +14,10 @@ use pontemesh_sdk_core::{
 
 use crate::config::LauncherConfig;
 
+const MAX_RELEASE_SIZE_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+const MAX_RELEASE_FILES: usize = 10_000;
+const INSTALL_OVERHEAD_BYTES: u64 = 16 * 1024 * 1024;
+
 pub struct GameLauncher {
     config: LauncherConfig,
 }
@@ -55,11 +59,11 @@ impl GameLauncher {
             &fs::read(&descriptor_path).map_err(|error| error.to_string())?,
         )
         .map_err(|error| error.to_string())?;
+        let required = required_free_space(manifest.total_size_bytes(), manifest.files.len())?;
         let available = fs2::available_space(parent).map_err(|error| error.to_string())?;
-        if available < manifest.total_size_bytes() {
+        if available < required {
             return Err(format!(
-                "Not enough disk space: {} bytes required, {available} available",
-                manifest.total_size_bytes()
+                "Not enough disk space: {required} bytes required for the cache and staged installation, {available} available"
             ));
         }
 
@@ -159,6 +163,23 @@ impl GameLauncher {
     }
 }
 
+fn required_free_space(total_size: u64, file_count: usize) -> Result<u64, String> {
+    if file_count > MAX_RELEASE_FILES {
+        return Err(format!(
+            "Release contains {file_count} files; the maximum is {MAX_RELEASE_FILES}"
+        ));
+    }
+    if total_size > MAX_RELEASE_SIZE_BYTES {
+        return Err(format!(
+            "Release is {total_size} bytes; the maximum is {MAX_RELEASE_SIZE_BYTES}"
+        ));
+    }
+    total_size
+        .checked_mul(2)
+        .and_then(|size| size.checked_add(INSTALL_OVERHEAD_BYTES))
+        .ok_or_else(|| "Release storage requirement overflowed".to_owned())
+}
+
 fn replace_installation(install_root: &Path, staging: &Path) -> Result<(), String> {
     let rollback = install_root.with_extension("pontemesh-rollback");
     if rollback.exists() {
@@ -214,5 +235,24 @@ impl InstallReport {
         println!("  Replica/Edge: {} bytes", self.summary.bytes_from_replica);
         println!("  Peers: {} bytes", self.summary.bytes_from_peer);
         println!("\nGame status: READY TO PLAY");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserves_space_for_cache_staging_and_overhead() {
+        assert_eq!(
+            required_free_space(8 * 1024 * 1024, 3).expect("release should fit"),
+            32 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn rejects_unbounded_release_descriptors() {
+        assert!(required_free_space(MAX_RELEASE_SIZE_BYTES + 1, 1).is_err());
+        assert!(required_free_space(1, MAX_RELEASE_FILES + 1).is_err());
     }
 }

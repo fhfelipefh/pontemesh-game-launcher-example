@@ -20,7 +20,7 @@ flowchart LR
 - fragment and release-level SHA-256 validation;
 - persistent fragment cache and cross-process resume;
 - total object progress and source statistics;
-- disk-space preflight, staging, atomic replacement, and rollback;
+- bounded release descriptors, cache-aware disk preflight, staging, atomic replacement, and rollback;
 - optional LAN peer seeding;
 - a least-privilege downloader credential created by the bootstrap command.
 
@@ -41,7 +41,8 @@ docker compose up --build -d
 ```
 
 Prepare the Origin, bucket, peer-enabled policy, sample release, and ignored local
-launcher credential:
+launcher credentials. The command generates a unique administrative password under
+the ignored `runtime/` directory:
 
 ```bash
 cargo run --bin bootstrap
@@ -53,13 +54,15 @@ Install the latest release:
 cargo run --release
 ```
 
-The installed release appears in `installed-game/game/`, and its discovered version
-is stored in `installed-game/.pontemesh-version`.
+The installed release appears in `runtime/installed-game/game/`, and its discovered
+version is stored in `runtime/installed-game/.pontemesh-version`. The entire
+`runtime/` directory is ignored by Git.
 
 ## Release format
 
-The bootstrap publishes three sample files and this descriptor as
-`game-updates/releases/stable.json`:
+The bootstrap generates an 8 MiB package in a temporary file, publishes it with two
+small sample files, and uploads this descriptor as `game-updates/releases/stable.json`.
+The generated package is never stored in Git:
 
 ```json
 {
@@ -71,7 +74,7 @@ The bootstrap publishes three sample files and this descriptor as
       "bucket": "game-updates",
       "key": "releases/1.0.0/game/game-update.pak",
       "path": "game/game-update.pak",
-      "sizeBytes": 534,
+      "sizeBytes": 8388608,
       "sha256": "64 lowercase hexadecimal characters",
       "order": 10
     }
@@ -99,6 +102,10 @@ second configured launcher while the first is seeding. The transfer summary show
 bytes received from peers. Every peer fragment is still validated against the
 Origin-authorized manifest.
 
+The Compose Origin ports bind to `127.0.0.1` by default. A multi-machine test must
+place the Origin behind HTTPS and update `origin_url`; plaintext HTTP is accepted
+only for loopback addresses so the downloader token cannot cross the LAN unencrypted.
+
 ## Failure and resume checks
 
 Interrupt a download or make an auxiliary source unavailable, then run the launcher
@@ -115,7 +122,10 @@ npm --prefix ../pontemesh-server/web run test:e2e:origin-replica
 
 ## Credentials
 
-`bootstrap` writes the one-time downloader token to the ignored `launcher.toml`.
+`bootstrap` writes the downloader token to the ignored `launcher.toml` and stores a
+random 48-character administrative password in
+`runtime/bootstrap-admin-password`. On Unix, both files are created with owner-only
+permissions; on Windows, they inherit the current user's filesystem access control.
 `PONTEMESH_APPLICATION_TOKEN` and `PONTEMESH_ORIGIN_URL` can override local values.
 Never commit or compile a reusable token into a public launcher. Protected game
 content should use user authentication and a backend token exchange; see

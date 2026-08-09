@@ -1,5 +1,6 @@
 use std::{env, fs, path::Path};
 
+use reqwest::Url;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -44,8 +45,17 @@ impl LauncherConfig {
     }
 
     fn validate(&self) -> Result<(), String> {
-        if !(self.origin_url.starts_with("http://") || self.origin_url.starts_with("https://")) {
-            return Err("origin_url must start with http:// or https://".to_owned());
+        let origin = Url::parse(&self.origin_url)
+            .map_err(|error| format!("origin_url must be a valid URL: {error}"))?;
+        match origin.scheme() {
+            "https" => {}
+            "http" if is_loopback_origin(&origin) => {}
+            "http" => {
+                return Err(
+                    "origin_url must use HTTPS unless it points to the local computer".to_owned(),
+                )
+            }
+            _ => return Err("origin_url must use http:// or https://".to_owned()),
         }
         for (name, value) in [
             ("application_token", self.application_token.as_str()),
@@ -66,6 +76,16 @@ impl LauncherConfig {
     }
 }
 
+fn is_loopback_origin(origin: &Url) -> bool {
+    origin.host_str().is_some_and(|host| {
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    })
+}
+
 fn default_origin_url() -> String {
     "http://127.0.0.1:8080".to_owned()
 }
@@ -75,7 +95,7 @@ fn default_release_manifest_key() -> String {
 }
 
 fn default_install_directory() -> String {
-    "installed-game".to_owned()
+    "runtime/installed-game".to_owned()
 }
 
 #[cfg(test)]
@@ -111,5 +131,31 @@ release_bucket = "game-updates"
         };
 
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_plain_http_only_for_loopback_origins() {
+        let mut config = valid_config();
+        config.origin_url = "http://localhost:8080".to_owned();
+        assert!(config.validate().is_ok());
+
+        config.origin_url = "http://[::1]:8080".to_owned();
+        assert!(config.validate().is_ok());
+
+        config.origin_url = "http://192.168.1.20:8080".to_owned();
+        assert!(config.validate().is_err());
+    }
+
+    fn valid_config() -> LauncherConfig {
+        LauncherConfig {
+            origin_url: default_origin_url(),
+            application_token: "pm_app_example".to_owned(),
+            release_bucket: "game-updates".to_owned(),
+            release_manifest_key: default_release_manifest_key(),
+            install_directory: default_install_directory(),
+            p2p_listen_address: None,
+            p2p_announce_address: None,
+            seed_seconds: 0,
+        }
     }
 }
