@@ -5,6 +5,7 @@ use std::{env, path::PathBuf, process::ExitCode};
 
 use config::LauncherConfig;
 use launcher::GameLauncher;
+use pontemesh_sdk_core::CancellationToken;
 
 fn main() -> ExitCode {
     println!("PONTE MESH GAME LAUNCHER");
@@ -25,9 +26,14 @@ fn run() -> Result<(), String> {
         .unwrap_or_else(|| PathBuf::from("launcher.toml"));
     let config = LauncherConfig::load(&config_path)?;
     println!("Origin: {}", config.origin_url);
-    println!("Object: {}/{}", config.bucket, config.object_key);
-    println!("Downloading the configured update...\n");
+    println!(
+        "Release descriptor: {}/{}",
+        config.release_bucket, config.release_manifest_key
+    );
+    println!("Discovering and installing the latest release...\n");
 
-    GameLauncher::new(config).install_update()?.print();
+    GameLauncher::new(config)
+        .install_latest(CancellationToken::default())?
+        .print();
     Ok(())
 }
