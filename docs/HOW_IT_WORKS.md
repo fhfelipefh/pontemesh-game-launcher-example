@@ -1,6 +1,8 @@
 # How the example works
 
-The launcher knows only five application-level values: the Origin URL, an application token, a bucket, an object key, and a destination path. It does not implement manifest parsing, fragment selection, integrity checks, source selection, or fallback.
+The launcher knows the Origin URL, a runtime-injected downloader token, the release
+bucket, the stable descriptor key, and the installation directory. Ponte Mesh owns
+authorization, source selection, fragment validation, resume, and fallback.
 
 ## Update sequence
 
@@ -9,71 +11,76 @@ sequenceDiagram
     actor Player
     participant Launcher
     participant SDK as Ponte Mesh SDK
-    participant Origin as Ponte Mesh Origin
+    participant Origin
     participant Source as Authorized source
+    participant Disk
 
-    Player->>Launcher: Start update
-    Launcher->>SDK: sync_object(bucket, key, destination)
+    Player->>Launcher: Check for update
+    Launcher->>SDK: Sync releases/stable.json
     SDK->>Origin: Request access package
-    Origin-->>SDK: Temporary authorization, manifest, sources
-    SDK->>Source: Download authorized fragments
-    Source-->>SDK: Fragment bytes
-    SDK->>SDK: Validate each fragment hash
-    SDK->>SDK: Assemble and write the object
-    SDK-->>Launcher: Transfer summary
+    Origin-->>SDK: Manifest, policy, authorized sources
+    SDK->>Source: Request missing fragments
+    Source-->>SDK: Untrusted bytes
+    SDK->>SDK: Validate every fragment hash
+    SDK-->>Launcher: Release descriptor
+    loop Files in declared order
+        Launcher->>SDK: Sync release object into staging
+        SDK->>Source: Missing fragments only
+        SDK->>SDK: Validate object and release hashes
+    end
+    Launcher->>Disk: Check space and swap staging directory
+    Disk-->>Launcher: Installed or rolled back
     Launcher-->>Player: Ready to play
 ```
-
-In this basic setup the Origin is the only available data source. That is valid Ponte Mesh behavior: the Origin is also the guaranteed fallback. Replica/Edge and peer sources can be introduced later without changing the launcher call.
 
 ## Code map
 
 ```text
-src/main.rs       prints launcher state and coordinates one update
-src/config.rs     loads and validates launcher.toml
-src/launcher.rs   translates the launcher request into one SDK call
-compose.yaml      starts a local Origin and PostgreSQL
-sample-content/   contains the fake game update uploaded to the Origin
-```
-
-The integration itself is intentionally small:
-
-```rust
-let client = PontemeshClient::new(PontemeshClientConfig {
-    origin_url,
-    application_token,
-    p2p: P2pConfig::default(),
-})?;
-
-client.sync_object_with_summary_and_progress(
-    SyncObjectRequest {
-        bucket,
-        key,
-        destination,
-    },
-    Some(&mut progress),
-)?;
+src/main.rs            starts a normal update
+src/config.rs          loads local and environment configuration
+src/launcher.rs        stages, verifies, installs, and rolls back releases
+src/bin/bootstrap.rs   prepares a fresh local Origin automatically
+compose.yaml           starts the Origin and PostgreSQL
+sample-content/        contains the simulated game release
 ```
 
 ## Trust boundaries
 
 ```mermaid
 flowchart LR
-    L[Game launcher] -->|application token| O[Origin control plane]
-    O -->|temporary access package| S[Ponte Mesh SDK]
-    S -->|authorized fragment requests| D[Origin or auxiliary source]
-    D -->|untrusted bytes| S
-    S -->|hash-validated file| G[Installed game directory]
+    L[Public launcher] -->|runtime downloader token| O[Origin control plane]
+    O -->|short-lived access package| S[SDK]
+    P[Peer or Replica/Edge] -->|untrusted fragments| S
+    O -->|fallback fragments| S
+    S -->|hash-validated files| T[Staging directory]
+    T -->|atomic swap| G[Installed game]
 ```
 
-The long-lived application token is used only to ask the Origin for a temporary access package. Fragment bytes are not trusted merely because they came from a known network address; the SDK validates them against the Origin-authorized manifest.
+The downloader preset has no object-write scope. It limits a leaked demonstration
+token but does not turn an embedded secret into a safe authentication mechanism.
+Public protected applications need a real user identity and short-lived token
+exchange outside the executable.
 
-## Local-network behavior
+## Resume and rollback
 
-`127.0.0.1` is appropriate when the launcher and Docker run on the same computer. For a launcher on another computer, use the Docker host's LAN address, for example `http://192.168.1.25:8080`, and allow inbound TCP port `8080` in the host firewall.
+Validated fragments are cached by manifest identity. A later process reads and
+revalidates them before downloading anything. Completed files are written through a
+temporary file. A release is assembled in a sibling staging directory, then the old
+installation is renamed to a rollback directory before the new one is installed. If
+the final rename fails, the previous directory is restored.
 
-The database is not published to the host. Port `9000` is exposed for S3-compatible tools, while this launcher communicates with the Ponte Mesh endpoints on port `8080`.
+## LAN peer flow
 
-## Moving beyond the example
+```mermaid
+flowchart LR
+    A[Launcher A] -->|announce validated fragments| O[Origin]
+    B[Launcher B] -->|request access package| O
+    O -->|A is an authorized source| B
+    B -->|fragment request| A
+    A -->|fragment bytes| B
+    B -->|validate against Origin manifest| D[Local cache]
+```
 
-A production launcher would normally add version discovery, signed launcher releases, retry UX, disk-space checks, atomic installation, rollback, and secure credential provisioning. Those concerns are deliberately outside this repository so the Ponte Mesh integration remains easy to read.
+Launcher A must remain running and advertise a reachable LAN address. The Origin
+continues to control discovery and authorization; a peer never becomes the authority
+for hashes or access.

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 FROM scratch AS server-source
-ADD https://github.com/fhfelipefh/pontemesh-server.git#b3c78ad42249768e42ffddf4e37fc3e9ab15924e /source
+ADD https://github.com/fhfelipefh/pontemesh-server.git#5ea3ab9a3c5986052466bcb0fe76e0a72a747a17 /source
 
 FROM node:22-bookworm-slim AS web-build
 WORKDIR /app/web

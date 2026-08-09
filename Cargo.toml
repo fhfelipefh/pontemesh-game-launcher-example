@@ -1,11 +1,16 @@
 [package]
 name = "pontemesh-game-launcher-example"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fhfelipefh/pontemesh-game-launcher-example"
+default-run = "pontemesh-game-launcher-example"
 
 [dependencies]
-pontemesh-sdk-core = { git = "https://github.com/fhfelipefh/pontemesh-sdk", rev = "f60bff69081fe952e3019b46e8afe185a3092cbc" }
+pontemesh-sdk-core = { git = "https://github.com/fhfelipefh/pontemesh-sdk", rev = "0b28ee415d5934dade9c8a774578fa04d326662c", version = "0.2.0" }
+fs2 = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
 toml = "0.8"

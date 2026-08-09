@@ -6,10 +6,19 @@ use serde::Deserialize;
 pub struct LauncherConfig {
     #[serde(default = "default_origin_url")]
     pub origin_url: String,
+    #[serde(default)]
     pub application_token: String,
-    pub bucket: String,
-    pub object_key: String,
-    pub destination: String,
+    pub release_bucket: String,
+    #[serde(default = "default_release_manifest_key")]
+    pub release_manifest_key: String,
+    #[serde(default = "default_install_directory")]
+    pub install_directory: String,
+    #[serde(default)]
+    pub p2p_listen_address: Option<String>,
+    #[serde(default)]
+    pub p2p_announce_address: Option<String>,
+    #[serde(default)]
+    pub seed_seconds: u64,
 }
 
 impl LauncherConfig {
@@ -38,28 +47,35 @@ impl LauncherConfig {
         if !(self.origin_url.starts_with("http://") || self.origin_url.starts_with("https://")) {
             return Err("origin_url must start with http:// or https://".to_owned());
         }
-
         for (name, value) in [
             ("application_token", self.application_token.as_str()),
-            ("bucket", self.bucket.as_str()),
-            ("object_key", self.object_key.as_str()),
-            ("destination", self.destination.as_str()),
+            ("release_bucket", self.release_bucket.as_str()),
+            ("release_manifest_key", self.release_manifest_key.as_str()),
+            ("install_directory", self.install_directory.as_str()),
         ] {
             if value.trim().is_empty() {
                 return Err(format!("{name} cannot be empty"));
             }
         }
-
-        if self.application_token == "paste-the-token-created-in-the-server-panel" {
-            return Err("Replace the placeholder application_token in launcher.toml".to_owned());
+        if self.application_token == "set-by-bootstrap-or-environment" {
+            return Err(
+                "Set PONTEMESH_APPLICATION_TOKEN or update the ignored launcher.toml".to_owned(),
+            );
         }
-
         Ok(())
     }
 }
 
 fn default_origin_url() -> String {
     "http://127.0.0.1:8080".to_owned()
+}
+
+fn default_release_manifest_key() -> String {
+    "releases/stable.json".to_owned()
+}
+
+fn default_install_directory() -> String {
+    "installed-game".to_owned()
 }
 
 #[cfg(test)]
@@ -71,14 +87,13 @@ mod tests {
         let config: LauncherConfig = toml::from_str(
             r#"
 application_token = "pm_app_example"
-bucket = "game-updates"
-object_key = "releases/1.0.0/game-update.pak"
-destination = "installed-game/game-update.pak"
+release_bucket = "game-updates"
 "#,
         )
         .expect("configuration should parse");
 
         assert_eq!(config.origin_url, "http://127.0.0.1:8080");
+        assert_eq!(config.release_manifest_key, "releases/stable.json");
         assert!(config.validate().is_ok());
     }
 
@@ -86,15 +101,15 @@ destination = "installed-game/game-update.pak"
     fn rejects_the_documented_token_placeholder() {
         let config = LauncherConfig {
             origin_url: default_origin_url(),
-            application_token: "paste-the-token-created-in-the-server-panel".to_owned(),
-            bucket: "game-updates".to_owned(),
-            object_key: "update.pak".to_owned(),
-            destination: "installed-game/update.pak".to_owned(),
+            application_token: "set-by-bootstrap-or-environment".to_owned(),
+            release_bucket: "game-updates".to_owned(),
+            release_manifest_key: default_release_manifest_key(),
+            install_directory: default_install_directory(),
+            p2p_listen_address: None,
+            p2p_announce_address: None,
+            seed_seconds: 0,
         };
 
-        assert_eq!(
-            config.validate(),
-            Err("Replace the placeholder application_token in launcher.toml".to_owned())
-        );
+        assert!(config.validate().is_err());
     }
 }
