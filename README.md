@@ -155,6 +155,7 @@ Read [How it works](docs/HOW_IT_WORKS.md) for the control/data flow and code map
 - [Ponte Mesh documentation](https://fhfelipefh.github.io/pontemesh-docs/)
 - [Ponte Mesh Server](https://github.com/fhfelipefh/pontemesh-server)
 - [Ponte Mesh SDK](https://github.com/fhfelipefh/pontemesh-sdk)
+- [Game Launcher Example](https://github.com/fhfelipefh/pontemesh-game-launcher-example)
 
 ## License
 
