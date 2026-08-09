@@ -1,5 +1,11 @@
 /launcher.toml
 /runtime/
+/native/
+/examples/cpp/build*/
+/examples/javascript/node_modules/
+**/__pycache__/
+*.pyc
 /installed-game/
 /installed-game.pontemesh-cache/
 /target/
+**/target/

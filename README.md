@@ -1,38 +1,61 @@
-# Ponte Mesh Game Launcher Example
+# Ponte Mesh Game Launcher Examples
 
-A small cross-platform launcher that discovers and installs a multi-file game release
-from a local Ponte Mesh network. It uses the real Server and Rust SDK while keeping
-the application code approachable for first-time users.
+Functional, beginner-friendly game launcher examples that download the same release
+from a local Ponte Mesh network through different language stacks.
+
+| Example | SDK bridge | Install directory |
+| --- | --- | --- |
+| [Rust](examples/rust/) | Native Rust SDK | `runtime/installations/rust/` |
+| [Python](examples/python/) | Standard-library `ctypes` over the C ABI | `runtime/installations/python/` |
+| [JavaScript](examples/javascript/) | Koffi over the C ABI | `runtime/installations/javascript/` |
+| [C++](examples/cpp/) | Dynamically loaded C ABI with RAII | `runtime/installations/cpp/` |
+
+The Python, JavaScript, and C++ code are language bindings around the official
+native SDK. They do not reimplement authorization, source selection, fragment
+validation, peer transport, or Origin fallback.
 
 ```mermaid
 flowchart LR
-    B[Bootstrap] -->|publishes release| O[Ponte Mesh Origin]
-    L[Launcher] -->|asks for stable.json| S[Ponte Mesh SDK]
-    S -->|temporary access package| O
-    O -->|Origin, Replica/Edge, or peers| S
-    S -->|verified staging directory| I[Atomic game installation]
+    R[Rust launcher] --> CORE[Rust SDK]
+    P[Python launcher] --> ABI[C ABI]
+    J[JavaScript launcher] --> ABI
+    C[C++ launcher] --> ABI
+    ABI --> CORE
+    CORE --> O[Ponte Mesh Origin]
+    CORE --> S[Authorized Origin, Replica/Edge, or peer]
+    R --> I[Verified game installation]
+    P --> I
+    J --> I
+    C --> I
 ```
 
-## Included behavior
+## What every example demonstrates
 
-- automatic latest-version discovery through `releases/stable.json`;
-- ordered, multi-file release installation;
-- fragment and release-level SHA-256 validation;
-- persistent fragment cache and cross-process resume;
-- total object progress and source statistics;
-- bounded release descriptors, cache-aware disk preflight, staging, atomic replacement, and rollback;
-- optional LAN peer seeding;
-- a least-privilege downloader credential created by the bootstrap command.
+- release discovery through `releases/stable.json`;
+- ordered multi-file installation;
+- safe relative paths and bounded release descriptors;
+- SDK-managed access packages, source selection, fragment hashes, and fallback;
+- progress reporting and source statistics;
+- staged replacement with rollback;
+- separate ignored runtime output for each language.
+
+The Rust example additionally demonstrates the SDK's persistent fragment cache and
+optional LAN peer seeding APIs.
 
 ## Requirements
 
-- Docker Desktop or Docker Engine with Docker Compose
-- Rust installed through [rustup](https://rustup.rs/)
-- Git
+- Docker Desktop or Docker Engine with Docker Compose;
+- Rust installed through [rustup](https://rustup.rs/), used by the shared bootstrap;
+- a Ponte Mesh SDK native package or a sibling `pontemesh-sdk` checkout;
+- the runtime for the selected example:
+  - Python 3.11 or newer;
+  - Node.js 20 or newer;
+  - a C++17 compiler and CMake 3.20 or newer.
 
-The same Rust source runs on Windows, Linux, and macOS.
+The examples target Windows, Linux, and macOS. Platform-specific application stacks
+are intentionally outside the current scope.
 
-## Quick start
+## Prepare the shared local network
 
 Start the local Origin and PostgreSQL:
 
@@ -40,122 +63,93 @@ Start the local Origin and PostgreSQL:
 docker compose up --build -d
 ```
 
-Prepare the Origin, bucket, peer-enabled policy, sample release, and ignored local
-launcher credentials. The command generates a unique administrative password under
-the ignored `runtime/` directory:
+Create the bucket, peer-enabled policy, 8 MiB game package, release descriptor, and
+ignored local credentials:
 
 ```bash
-cargo run --bin bootstrap
+cargo run --locked --manifest-path examples/rust/Cargo.toml --bin bootstrap
 ```
 
-Install the latest release:
+The generated package is uploaded from a temporary file and is never committed to
+Git. All credentials, downloads, caches, builds, and installations remain under
+ignored paths.
+
+## Provide the native SDK
+
+Extract an official SDK release into `native/`, preserving the dynamic library and
+`include/pontemesh_sdk.h`. Alternatively, build a sibling SDK checkout:
 
 ```bash
-cargo run --release
+cargo build --release --manifest-path ../pontemesh-sdk/bindings/c/Cargo.toml
 ```
 
-The installed release appears in `runtime/installed-game/game/`, and its discovered
-version is stored in `runtime/installed-game/.pontemesh-version`. The entire
-`runtime/` directory is ignored by Git.
+If the library is elsewhere, set `PONTEMESH_SDK_LIBRARY` to its absolute path. Rust
+uses the SDK source dependency directly and does not need this environment variable.
 
-## Release format
+## Run an example
 
-The bootstrap generates an 8 MiB package in a temporary file, publishes it with two
-small sample files, and uploads this descriptor as `game-updates/releases/stable.json`.
-The generated package is never stored in Git:
-
-```json
-{
-  "schemaVersion": 1,
-  "product": "pontemesh-demo-game",
-  "version": "1.0.0",
-  "files": [
-    {
-      "bucket": "game-updates",
-      "key": "releases/1.0.0/game/game-update.pak",
-      "path": "game/game-update.pak",
-      "sizeBytes": 8388608,
-      "sha256": "64 lowercase hexadecimal characters",
-      "order": 10
-    }
-  ]
-}
-```
-
-Paths are relative to the installation root. Absolute paths, parent traversal,
-duplicates, invalid hashes, empty releases, and unsupported schemas are rejected by
-the SDK before installation.
-
-## Test two launchers over the LAN
-
-Keep the first launcher alive as a peer by adding these values to its ignored
-`launcher.toml`:
-
-```toml
-p2p_listen_address = "/ip4/0.0.0.0/tcp/41001"
-p2p_announce_address = "/ip4/192.168.1.50/tcp/41001"
-seed_seconds = 300
-```
-
-Replace the address with that machine's LAN IP, run the launcher, and then run a
-second configured launcher while the first is seeding. The transfer summary shows
-bytes received from peers. Every peer fragment is still validated against the
-Origin-authorized manifest.
-
-The Compose Origin is reachable from the local network by default. On another
-launcher, set `origin_url` to the Server machine's LAN address, such as
-`http://192.168.1.50:8080`. HTTP and HTTPS are both supported; use this HTTP setup
-only on a network you trust and control.
-
-## Failure and resume checks
-
-Interrupt a download or make an auxiliary source unavailable, then run the launcher
-again. Validated fragments remain under `.pontemesh-cache` beside the target and are
-revalidated before reuse. Source failure activates the package-defined fallback;
-the SDK does not discard completed fragments.
-
-The Server repository's Origin/Replica integration suite exercises Replica/Edge
-loss and Origin fallback with the same contracts used here:
+Rust:
 
 ```bash
-npm --prefix ../pontemesh-server/web run test:e2e:origin-replica
+cargo run --release --locked --manifest-path examples/rust/Cargo.toml
 ```
 
-## Credentials
+Python:
 
-`bootstrap` writes the downloader token to the ignored `launcher.toml` and stores a
-random 48-character administrative password in
-`runtime/bootstrap-admin-password`. On Unix, both files are created with owner-only
-permissions; on Windows, they inherit the current user's filesystem access control.
-`PONTEMESH_APPLICATION_TOKEN` and `PONTEMESH_ORIGIN_URL` can override local values.
-Never commit or compile a reusable token into a public launcher. Protected game
-content should use user authentication and a backend token exchange; see
-[Security](SECURITY.md).
+```bash
+python examples/python/launcher.py
+```
+
+JavaScript:
+
+```bash
+cd examples/javascript
+npm install
+npm start
+```
+
+C++:
+
+```bash
+cmake -S examples/cpp -B examples/cpp/build
+cmake --build examples/cpp/build --config Release
+```
+
+Run the generated `pontemesh_game_launcher_cpp` from the repository root.
+
+## Local-network addresses
+
+The bootstrap writes `http://127.0.0.1:8080` to `launcher.toml`. On another computer
+in the same trusted network, replace it with the Origin machine's LAN address, such
+as `http://192.168.1.50:8080`, and copy the downloader token securely. HTTP and HTTPS
+are both supported; HTTP should be limited to a network you trust and control.
 
 ## Stop or reset
 
-Keep local data:
+Keep Server state:
 
 ```bash
 docker compose down
 ```
 
-Delete the demonstration Server state, credentials, database, and objects:
+Delete only the demonstration Server volumes:
 
 ```bash
 docker compose down --volumes
 ```
 
-## More detail
+## Documentation
 
-Read [How it works](docs/HOW_IT_WORKS.md) for the control/data flow and code map.
+- [How all examples work](docs/HOW_IT_WORKS.md)
+- [Security policy](SECURITY.md)
+- [Ponte Mesh SDK language bindings](https://github.com/fhfelipefh/pontemesh-sdk/blob/main/docs/LANGUAGE_BINDINGS.md)
 
 ## Project links
 
 - [Ponte Mesh documentation](https://fhfelipefh.github.io/pontemesh-docs/)
 - [Ponte Mesh Server](https://github.com/fhfelipefh/pontemesh-server)
 - [Ponte Mesh SDK](https://github.com/fhfelipefh/pontemesh-sdk)
-- [Game Launcher Example](https://github.com/fhfelipefh/pontemesh-game-launcher-example)
+- [Game Launcher Examples](https://github.com/fhfelipefh/pontemesh-game-launcher-example)
 
 ## License
 
