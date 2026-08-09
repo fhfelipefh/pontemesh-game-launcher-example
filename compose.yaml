@@ -1,0 +1,40 @@
+name: pontemesh-game-launcher-example
+
+services:
+  origin:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    image: pontemesh-server:game-launcher-example
+    environment:
+      PONTEMESH_HOME: /var/pontemesh_home
+      PONTEMESH_DATABASE_URL: postgres://pontemesh:pontemesh@postgres:5432/pontemesh
+      PONTEMESH_WEB_PORT: 8080
+      PONTEMESH_S3_PORT: 9000
+      RUST_LOG: pontemesh_server=info,tower_http=info
+    ports:
+      - "8080:8080"
+      - "9000:9000"
+    volumes:
+      - pontemesh_home:/var/pontemesh_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: pontemesh
+      POSTGRES_USER: pontemesh
+      POSTGRES_PASSWORD: pontemesh
+    volumes:
+      - pontemesh_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pontemesh -d pontemesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pontemesh_home:
+  pontemesh_postgres:

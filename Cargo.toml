@@ -1,0 +1,11 @@
+[package]
+name = "pontemesh-game-launcher-example"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fhfelipefh/pontemesh-game-launcher-example"
+
+[dependencies]
+pontemesh-sdk-core = { git = "https://github.com/fhfelipefh/pontemesh-sdk", rev = "f60bff69081fe952e3019b46e8afe185a3092cbc" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
