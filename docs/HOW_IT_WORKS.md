@@ -1,15 +1,12 @@
-# How the example works
+# How the examples work
 
-The launcher knows the Origin URL, a runtime-injected downloader token, the release
-bucket, the stable descriptor key, and the installation directory. Ponte Mesh owns
-authorization, source selection, fragment validation, resume, and fallback.
-
-## Update sequence
+Every language consumes the same `launcher.toml`, Origin, downloader credential, and
+release descriptor. The only difference is how application code reaches the SDK.
 
 ```mermaid
 sequenceDiagram
     actor Player
-    participant Launcher
+    participant Launcher as Language launcher
     participant SDK as Ponte Mesh SDK
     participant Origin
     participant Source as Authorized source
@@ -18,82 +15,60 @@ sequenceDiagram
     Player->>Launcher: Check for update
     Launcher->>SDK: Sync releases/stable.json
     SDK->>Origin: Request access package
-    Origin-->>SDK: Manifest, policy, authorized sources
+    Origin-->>SDK: Manifest, policy, and authorized sources
     SDK->>Source: Request missing fragments
     Source-->>SDK: Untrusted bytes
-    SDK->>SDK: Validate every fragment hash
-    SDK-->>Launcher: Release descriptor
-    loop Files in declared order
-        Launcher->>SDK: Sync release object into staging
-        SDK->>Source: Missing fragments only
-        SDK->>SDK: Validate object and release hashes
+    SDK->>SDK: Validate fragment and object hashes
+    SDK-->>Launcher: Verified release descriptor
+    Launcher->>Launcher: Validate paths, sizes, hashes, and order
+    loop Files in release order
+        Launcher->>SDK: Sync file into staging
+        SDK->>Source: Request verified fragments
+        Launcher->>Launcher: Verify declared release file
     end
-    Launcher->>Disk: Check space and swap staging directory
-    Disk-->>Launcher: Installed or rolled back
-    Launcher-->>Player: Ready to play
+    Launcher->>Disk: Replace installation atomically
+    Disk-->>Player: Ready to play or previous version restored
 ```
 
-## Code map
+## Repository map
 
 ```text
-src/main.rs            starts a normal update
-src/config.rs          loads local and environment configuration
-src/launcher.rs        stages, verifies, installs, and rolls back releases
-src/bin/bootstrap.rs   prepares a fresh local Origin automatically
-compose.yaml           starts the Origin and PostgreSQL
-sample-content/        contains small release metadata files
-runtime/               ignored downloads, fragment cache, and installed game
+examples/rust/        direct Rust SDK and full cache/P2P features
+examples/python/      ctypes wrapper over the stable C ABI
+examples/javascript/  Koffi wrapper over the stable C ABI
+examples/cpp/         C++17 dynamic loader and RAII client
+docker/               shared local Origin image
+sample-content/       small metadata files uploaded by bootstrap
+runtime/              ignored credentials, downloads, and installations
+native/               ignored extracted native SDK package
 ```
-
-The bootstrap creates the 8 MiB simulated game package in a temporary file. It is
-uploaded to the local Origin and removed automatically instead of being committed to
-the repository. It also creates a random administrative password and downloader token
-inside ignored local files; no reusable application or Server credential is tracked.
 
 ## Trust boundaries
 
 ```mermaid
 flowchart LR
-    L[Public launcher] -->|runtime downloader token| O[Origin control plane]
-    O -->|short-lived access package| S[SDK]
-    P[Peer or Replica/Edge] -->|untrusted fragments| S
-    O -->|fallback fragments| S
-    S -->|hash-validated files| T[Staging directory]
-    T -->|atomic swap| G[Installed game]
+    A[Application language] -->|local calls| B[Rust SDK or C ABI]
+    B -->|bearer token| O[Origin control plane]
+    O -->|short-lived access package| B
+    U[Origin, Replica/Edge, or peer] -->|untrusted fragments| B
+    B -->|hash-validated object| S[Language staging directory]
+    S -->|validated release path and atomic swap| G[Installed game]
 ```
 
-The downloader preset has no object-write scope. It limits a leaked demonstration
-token but does not turn an embedded secret into a safe authentication mechanism.
-Public protected applications need a real user identity and short-lived token
-exchange outside the executable.
+Python `ctypes`, JavaScript Koffi, and the C++ dynamic loader are thin bridges. They
+do not decide which source is trusted and do not validate network fragments; those
+security controls remain inside the native SDK.
 
-## Resume and rollback
+## Release validation
 
-Validated fragments are cached by manifest identity. A later process reads and
-revalidates them before downloading anything. Completed files are written through a
-temporary file. A release is assembled in a sibling staging directory, then the old
-installation is renamed to a rollback directory before the new one is installed. If
-the final rename fails, the previous directory is restored. Before downloading, the
-launcher rejects releases above 20 GiB or 10,000 files and reserves disk space for
-both the fragment cache and staging directory.
+All implementations require schema version 1, a non-empty release, safe portable
+relative paths, unique destinations, valid sizes, SHA-256-shaped digests, at most
+10,000 files, and at most 20 GiB. Python and JavaScript additionally compare the
+release-level SHA-256 after the SDK completes. C++ relies on the SDK's complete-object
+hash validation and checks the descriptor size before installation.
 
-## LAN peer flow
+## Installation isolation
 
-```mermaid
-flowchart LR
-    A[Launcher A] -->|announce validated fragments| O[Origin]
-    B[Launcher B] -->|request access package| O
-    O -->|A is an authorized source| B
-    B -->|fragment request| A
-    A -->|fragment bytes| B
-    B -->|validate against Origin manifest| D[Local cache]
-```
-
-Launcher A must remain running and advertise a reachable LAN address. The Origin
-continues to control discovery and authorization; a peer never becomes the authority
-for hashes or access.
-
-The default Compose Origin is available to the local network. Launchers on separate
-computers can use the Server machine's LAN IP with HTTP or HTTPS. HTTP keeps the
-example simple for an isolated trusted LAN; HTTPS remains recommended whenever other
-network participants must not observe tokens or control-plane responses.
+Each stack installs into its own directory under `runtime/installations/`. A failed
+final rename restores the previous directory. This lets all examples run against the
+same release without overwriting one another.

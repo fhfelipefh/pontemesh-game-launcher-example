@@ -40,12 +40,12 @@ fn main() -> Result<(), String> {
     write_secret(
         Path::new("launcher.toml"),
         &format!(
-            "origin_url = \"{ORIGIN}\"\napplication_token = \"{token}\"\nrelease_bucket = \"{BUCKET}\"\nrelease_manifest_key = \"releases/stable.json\"\ninstall_directory = \"runtime/installed-game\"\n"
+            "origin_url = \"{ORIGIN}\"\napplication_token = \"{token}\"\nrelease_bucket = \"{BUCKET}\"\nrelease_manifest_key = \"releases/stable.json\"\ninstall_directory = \"runtime/installations/rust\"\n"
         ),
     )
     .map_err(|error| error.to_string())?;
     println!("Demo Origin, release, and downloader credential are ready.");
-    println!("Run: cargo run");
+    println!("The shared configuration is ready for every language example.");
     Ok(())
 }
 

@@ -82,7 +82,7 @@ fn default_release_manifest_key() -> String {
 }
 
 fn default_install_directory() -> String {
-    "runtime/installed-game".to_owned()
+    "runtime/installations/rust".to_owned()
 }
 
 #[cfg(test)]
