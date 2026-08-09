@@ -2242,10 +2242,11 @@ dependencies = [
 
 [[package]]
 name = "pontemesh-game-launcher-example"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fs2",
  "pontemesh-sdk-core",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
