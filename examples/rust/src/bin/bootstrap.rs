@@ -15,7 +15,7 @@ use reqwest::{
 };
 use serde_json::{json, Value};
 
-const ORIGIN: &str = "http://127.0.0.1:8080";
+const ORIGIN: &str = "http://127.0.0.1:8085";
 const USERNAME: &str = "admin";
 const BUCKET: &str = "game-updates";
 const GENERATED_PACKAGE_SIZE: usize = 8 * 1024 * 1024;
