@@ -17,3 +17,6 @@ tempfile = "3"
 toml = "0.8"
 eframe = "0.29"
 tokio = { version = "1.0", features = ["rt", "macros", "sync"] }
+dotenvy = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+image = { version = "0.24", features = ["jpeg"] }

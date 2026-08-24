@@ -5,18 +5,29 @@ use std::{
     time::{Duration, Instant},
 };
 
+use chrono::Local;
 use pontemesh_sdk_core::{
     integrity::sha256_hex,
     p2p::{P2pConfig, P2pTransportKind},
     release::ReleaseManifest,
     CancellationToken, PontemeshClient, PontemeshClientConfig, SyncObjectRequest, TransferSummary,
 };
-
 use crate::config::LauncherConfig;
 
 const MAX_RELEASE_SIZE_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 const MAX_RELEASE_FILES: usize = 10_000;
 const INSTALL_OVERHEAD_BYTES: u64 = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone)]
+pub struct FragmentLogEntry {
+    pub timestamp: String,
+    pub file: String,
+    pub fragment_index: u32,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub source: String,
+    pub is_peer: bool,
+}
 
 pub enum ProgressMessage {
     Status(String),
@@ -25,7 +36,9 @@ pub enum ProgressMessage {
         downloaded: u64,
         total: u64,
         percent: u64,
+        speed_bytes_per_sec: u64,
     },
+    Fragment(FragmentLogEntry),
     Done(InstallReport),
     Error(String),
 }
@@ -39,7 +52,23 @@ impl GameLauncher {
         Self { config }
     }
 
-    pub fn install_latest(&self, cancellation: CancellationToken, tx: std::sync::mpsc::Sender<ProgressMessage>) -> Result<InstallReport, String> {
+    pub fn clean_installation_and_cache(&self) -> Result<(), String> {
+        let install_root = PathBuf::from(&self.config.install_directory);
+        let fragment_cache = self.config.resolved_cache_path();
+        if install_root.exists() {
+            fs::remove_dir_all(&install_root).map_err(|error| error.to_string())?;
+        }
+        if fragment_cache.exists() {
+            fs::remove_dir_all(&fragment_cache).map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn install_latest(
+        &self,
+        cancellation: CancellationToken,
+        tx: std::sync::mpsc::Sender<ProgressMessage>,
+    ) -> Result<InstallReport, String> {
         let client = self.client()?;
         let install_root = PathBuf::from(&self.config.install_directory);
         let parent = install_root
@@ -52,9 +81,9 @@ impl GameLauncher {
             .tempdir_in(parent)
             .map_err(|error| error.to_string())?;
         let descriptor_path = release_work.path().join("release.json");
-        let fragment_cache = install_root.with_extension("pontemesh-cache");
+        let fragment_cache = self.config.resolved_cache_path();
 
-        let _ = tx.send(ProgressMessage::Status("Syncing release manifest...".to_string()));
+        let _ = tx.send(ProgressMessage::Status("Syncing release manifest from Origin...".to_string()));
         client
             .sync_object_to_disk_with_cache(
                 SyncObjectRequest {
@@ -76,43 +105,69 @@ impl GameLauncher {
         let available = fs2::available_space(parent).map_err(|error| error.to_string())?;
         if available < required {
             return Err(format!(
-                "Not enough disk space: {required} bytes required for the cache and staged installation, {available} available"
+                "Not enough disk space: {required} bytes required, {available} available"
             ));
         }
 
         let staging = release_work.path().join("installation");
         fs::create_dir_all(&staging).map_err(|error| error.to_string())?;
         let started = Instant::now();
-        let mut summary = TransferSummary::default();
+        let mut last_speed_check = Instant::now();
+        let mut bytes_since_last_check = 0u64;
+        let mut current_speed = 0u64;
 
-        let _ = tx.send(ProgressMessage::Status("Downloading game files...".to_string()));
+        let mut summary = TransferSummary::default();
+        let _ = tx.send(ProgressMessage::Status("Transferring release fragments...".to_string()));
         let mut overall_downloaded = 0u64;
         let total_size = manifest.total_size_bytes();
 
         for file in manifest.files_in_install_order() {
             let destination = staging.join(&file.path);
             let label = file.path.clone();
-            
             let mut file_downloaded_cache = 0u64;
-            
+
             let mut progress = |fragment: u32, downloaded: u64, total: u64, source: &str| {
                 let diff = downloaded.saturating_sub(file_downloaded_cache);
                 file_downloaded_cache = downloaded;
                 overall_downloaded += diff;
-                
+                bytes_since_last_check += diff;
+
+                let elapsed_speed = last_speed_check.elapsed();
+                if elapsed_speed >= Duration::from_millis(400) {
+                    let secs = elapsed_speed.as_secs_f64();
+                    if secs > 0.0 {
+                        current_speed = (bytes_since_last_check as f64 / secs) as u64;
+                    }
+                    last_speed_check = Instant::now();
+                    bytes_since_last_check = 0;
+                }
+
                 let percent = overall_downloaded
                     .saturating_mul(100)
                     .checked_div(total_size)
                     .unwrap_or(0);
-                    
+
+                let is_peer = source.to_ascii_lowercase().contains("peer");
+                let log_entry = FragmentLogEntry {
+                    timestamp: Local::now().format("%H:%M:%S").to_string(),
+                    file: label.clone(),
+                    fragment_index: fragment + 1,
+                    downloaded_bytes: downloaded,
+                    total_bytes: total,
+                    source: source.to_string(),
+                    is_peer,
+                };
+                let _ = tx.send(ProgressMessage::Fragment(log_entry));
+
                 let _ = tx.send(ProgressMessage::Progress {
                     file: label.clone(),
                     downloaded: overall_downloaded,
                     total: total_size,
                     percent,
+                    speed_bytes_per_sec: current_speed,
                 });
             };
-            
+
             let file_summary = client
                 .sync_object_to_disk_with_cache(
                     SyncObjectRequest {
@@ -125,6 +180,7 @@ impl GameLauncher {
                     cancellation.clone(),
                 )
                 .map_err(|error| error.to_string())?;
+
             let bytes = fs::read(&destination).map_err(|error| error.to_string())?;
             if bytes.len() as u64 != file.size_bytes
                 || !sha256_hex(&bytes).eq_ignore_ascii_case(&file.sha256)
@@ -140,7 +196,7 @@ impl GameLauncher {
         )
         .map_err(|error| error.to_string())?;
         replace_installation(&install_root, &staging)?;
-        
+
         let report = InstallReport {
             destination: install_root,
             version: manifest.version,
@@ -152,7 +208,10 @@ impl GameLauncher {
         let _ = tx.send(ProgressMessage::Done(report.clone()));
 
         if self.config.seed_seconds > 0 {
-            let _ = tx.send(ProgressMessage::Status(format!("Seeding to LAN peers for {}s", self.config.seed_seconds)));
+            let _ = tx.send(ProgressMessage::Status(format!(
+                "Seeding validated fragments to LAN peers for {}s",
+                self.config.seed_seconds
+            )));
             for _ in 0..self.config.seed_seconds {
                 if cancellation.is_cancelled() {
                     break;
@@ -243,7 +302,7 @@ fn merge_summary(total: &mut TransferSummary, next: &TransferSummary) {
     total.fallback_activations += next.fallback_activations;
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct InstallReport {
     pub destination: PathBuf,
     pub version: String,
@@ -254,6 +313,28 @@ pub struct InstallReport {
 }
 
 impl InstallReport {
+    pub fn p2p_percent(&self) -> f64 {
+        if self.bytes == 0 {
+            return 0.0;
+        }
+        (self.summary.bytes_from_peer as f64 / self.bytes as f64) * 100.0
+    }
+
+    pub fn origin_percent(&self) -> f64 {
+        if self.bytes == 0 {
+            return 0.0;
+        }
+        (self.summary.bytes_from_origin as f64 / self.bytes as f64) * 100.0
+    }
+
+    pub fn offload_percent(&self) -> f64 {
+        if self.bytes == 0 {
+            return 0.0;
+        }
+        let offloaded = self.summary.bytes_from_peer + self.summary.bytes_from_replica;
+        (offloaded as f64 / self.bytes as f64) * 100.0
+    }
+
     pub fn print(&self) {
         println!("\nUpdate {} installed successfully.", self.version);
         println!("  Directory: {}", self.destination.display());
@@ -263,7 +344,7 @@ impl InstallReport {
         println!("  Origin: {} bytes", self.summary.bytes_from_origin);
         println!("  Replica/Edge: {} bytes", self.summary.bytes_from_replica);
         println!("  Peers: {} bytes", self.summary.bytes_from_peer);
-        println!("\nGame status: READY TO PLAY");
+        println!("  Offload: {:.2}%", self.offload_percent());
     }
 }
 
