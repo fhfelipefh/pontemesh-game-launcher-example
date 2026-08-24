@@ -5,7 +5,8 @@ from a local Ponte Mesh network through different language stacks.
 
 | Example | SDK bridge | Install directory |
 | --- | --- | --- |
-| [Rust](examples/rust/) | Native Rust SDK | `runtime/installations/rust/` |
+| [Rust (CLI)](examples/rust/) | Native Rust SDK | `runtime/installations/rust/` |
+| [Rust (Visual Launcher)](examples/rust-ui/) | Native Rust SDK + egui UI | `runtime/installations/rust/` |
 | [Python](examples/python/) | Standard-library `ctypes` over the C ABI | `runtime/installations/python/` |
 | [JavaScript](examples/javascript/) | Koffi over the C ABI | `runtime/installations/javascript/` |
 | [C++](examples/cpp/) | Dynamically loaded C ABI with RAII | `runtime/installations/cpp/` |
@@ -88,10 +89,16 @@ uses the SDK source dependency directly and does not need this environment varia
 
 ## Run an example
 
-Rust:
-
+Rust (CLI):
+ 
 ```bash
 cargo run --release --locked --manifest-path examples/rust/Cargo.toml
+```
+
+Rust (Visual Launcher):
+
+```bash
+cargo run --release --manifest-path examples/rust-ui/Cargo.toml
 ```
 
 Python:
