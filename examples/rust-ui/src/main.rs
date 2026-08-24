@@ -19,11 +19,21 @@ use config::LauncherConfig;
 use launcher::{FragmentLogEntry, GameLauncher, InstallReport, ProgressMessage};
 
 fn main() -> eframe::Result<()> {
+    let icon_data = include_bytes!("../assets/icon.jpg");
+    let image = image::load_from_memory(icon_data).expect("Failed to load icon").into_rgba8();
+    let (width, height) = image.dimensions();
+    let icon = egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    };
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([820.0, 620.0])
             .with_min_inner_size([720.0, 520.0])
-            .with_title("Ponte Mesh - Test Launcher"),
+            .with_title("Ponte Mesh - Test Launcher")
+            .with_icon(std::sync::Arc::new(icon)),
         ..Default::default()
     };
 
@@ -32,6 +42,19 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|_cc| Ok(Box::new(LauncherApp::new()))),
     )
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum AppLanguage {
+    English,
+    Portuguese,
+}
+
+fn tr(lang: AppLanguage, en: &str, pt: &str) -> String {
+    match lang {
+        AppLanguage::English => en.to_string(),
+        AppLanguage::Portuguese => pt.to_string(),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -55,6 +78,7 @@ enum LauncherState {
 struct LauncherApp {
     config: LauncherConfig,
     config_path: PathBuf,
+    language: AppLanguage,
     active_tab: AppTab,
     state: LauncherState,
     cancellation: Option<CancellationToken>,
@@ -117,11 +141,12 @@ impl LauncherApp {
         Self {
             config,
             config_path,
+            language: AppLanguage::Portuguese,
             active_tab: AppTab::Test,
             state: LauncherState::Idle,
             cancellation: None,
             rx: None,
-            status_text: "Ready to test download.".to_string(),
+            status_text: "Pronto para testar o download.".to_string(),
             progress_percent: 0.0,
             downloaded_bytes: 0,
             total_bytes: 0,
@@ -453,7 +478,7 @@ impl eframe::App for LauncherApp {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.heading("PONTE MESH");
-                ui.label(egui::RichText::new("Network Test Launcher").strong().color(egui::Color32::from_rgb(140, 180, 255)));
+                ui.label(egui::RichText::new(tr(self.language, "Network Test Launcher", "Testador de Rede (Launcher)")).strong().color(egui::Color32::from_rgb(140, 180, 255)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let origin_display = if self.config.origin_url.len() > 40 {
@@ -461,16 +486,27 @@ impl eframe::App for LauncherApp {
                     } else {
                         self.config.origin_url.clone()
                     };
-                    ui.label(egui::RichText::new(format!("Origin: {}", origin_display)).small().weak());
+                    ui.label(egui::RichText::new(format!("{}: {}", tr(self.language, "Origin", "Origin"), origin_display)).small().weak());
+                    
+                    ui.separator();
+                    if self.language == AppLanguage::English {
+                        if ui.button("🇧🇷 PT-BR").clicked() {
+                            self.language = AppLanguage::Portuguese;
+                        }
+                    } else {
+                        if ui.button("🇺🇸 EN-US").clicked() {
+                            self.language = AppLanguage::English;
+                        }
+                    }
                 });
             });
             ui.add_space(6.0);
 
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_tab, AppTab::Test, "  Test & Download  ");
-                ui.selectable_value(&mut self.active_tab, AppTab::Dashboard, "  Dashboard & Metrics  ");
-                ui.selectable_value(&mut self.active_tab, AppTab::ScheduleLoop, "  Schedule & Loop  ");
-                ui.selectable_value(&mut self.active_tab, AppTab::Settings, "  Settings & Paths  ");
+                ui.selectable_value(&mut self.active_tab, AppTab::Test, tr(self.language, "  Test & Download  ", "  Teste e Download  "));
+                ui.selectable_value(&mut self.active_tab, AppTab::Dashboard, tr(self.language, "  Dashboard & Metrics  ", "  Dashboard e Métricas  "));
+                ui.selectable_value(&mut self.active_tab, AppTab::ScheduleLoop, tr(self.language, "  Schedule & Loop  ", "  Agendamento e Loop  "));
+                ui.selectable_value(&mut self.active_tab, AppTab::Settings, tr(self.language, "  Settings & Paths  ", "  Configurações e Caminhos  "));
             });
             ui.add_space(4.0);
         });
@@ -515,21 +551,21 @@ impl LauncherApp {
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new("Target Release Information").strong());
+            ui.label(egui::RichText::new(tr(self.language, "Target Release Information", "Informações do Release Alvo")).strong());
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Origin URL:");
+                ui.label(tr(self.language, "Origin URL:", "URL do Origin:"));
                 ui.label(egui::RichText::new(&self.config.origin_url).color(egui::Color32::LIGHT_BLUE));
             });
             ui.horizontal(|ui| {
-                ui.label("Release Bucket:");
+                ui.label(tr(self.language, "Release Bucket:", "Bucket do Release:"));
                 ui.label(egui::RichText::new(&self.config.release_bucket).strong());
                 ui.separator();
-                ui.label("Manifest Key:");
+                ui.label(tr(self.language, "Manifest Key:", "Chave do Manifesto:"));
                 ui.label(egui::RichText::new(&self.config.release_manifest_key).strong());
             });
             ui.horizontal(|ui| {
-                ui.label("Install Path:");
+                ui.label(tr(self.language, "Install Path:", "Caminho de Instalação:"));
                 ui.label(egui::RichText::new(&self.config.install_directory).small());
             });
         });
@@ -538,7 +574,7 @@ impl LauncherApp {
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new("Execution & Progress").strong());
+            ui.label(egui::RichText::new(tr(self.language, "Execution & Progress", "Execução & Progresso")).strong());
             ui.add_space(8.0);
 
             let progress_bar = egui::ProgressBar::new(self.progress_percent)
@@ -557,23 +593,23 @@ impl LauncherApp {
             ui.horizontal(|ui| {
                 match self.state {
                     LauncherState::Idle | LauncherState::Ready | LauncherState::Error => {
-                        if ui.button(egui::RichText::new("  Start Download Test  ").strong()).clicked() {
+                        if ui.button(egui::RichText::new(tr(self.language, "  Start Download Test  ", "  Iniciar Teste de Download  ")).strong()).clicked() {
                             self.trigger_start_download(false);
                         }
                     }
                     LauncherState::ScheduledWaiting => {
-                        if ui.button(egui::RichText::new("  Cancel Schedule  ").color(egui::Color32::YELLOW)).clicked() {
+                        if ui.button(egui::RichText::new(tr(self.language, "  Cancel Schedule  ", "  Cancelar Agendamento  ")).color(egui::Color32::YELLOW)).clicked() {
                             self.cancel_download();
                         }
                     }
                     LauncherState::Downloading | LauncherState::CycleCoolingDown => {
-                        if ui.button(egui::RichText::new("  Cancel  ").color(egui::Color32::RED)).clicked() {
+                        if ui.button(egui::RichText::new(tr(self.language, "  Cancel  ", "  Cancelar  ")).color(egui::Color32::RED)).clicked() {
                             self.cancel_download();
                         }
                     }
                 }
 
-                if ui.button("Clean Staging & Cache").clicked() {
+                if ui.button(tr(self.language, "Clean Staging & Cache", "Limpar Cache e Staging")).clicked() {
                     let launcher = GameLauncher::new(self.config.clone());
                     match launcher.clean_installation_and_cache() {
                         Ok(()) => self.status_text = "Cleaned installation directory and fragment cache.".to_string(),
@@ -589,7 +625,7 @@ impl LauncherApp {
                 .fill(egui::Color32::from_rgb(50, 15, 15))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(egui::RichText::new("Error Occurred").strong().color(egui::Color32::RED));
+                    ui.label(egui::RichText::new(tr(self.language, "Error Occurred", "Ocorreu um Erro")).strong().color(egui::Color32::RED));
                     ui.label(egui::RichText::new(err).color(egui::Color32::LIGHT_RED));
                 });
         }
@@ -598,7 +634,7 @@ impl LauncherApp {
             ui.add_space(12.0);
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(egui::RichText::new("Last Transfer Summary").strong());
+                ui.label(egui::RichText::new(tr(self.language, "Last Transfer Summary", "Resumo da Última Transferência")).strong());
                 ui.add_space(6.0);
 
                 ui.horizontal(|ui| {
@@ -627,9 +663,9 @@ impl LauncherApp {
         ui.add_space(10.0);
 
         ui.horizontal(|ui| {
-            ui.heading("Transfer Metrics & Real-time Logs");
+            ui.heading(tr(self.language, "Transfer Metrics & Real-time Logs", "Métricas de Transferência & Logs em Tempo Real"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Export CSV").clicked() {
+                if ui.button(tr(self.language, "Export CSV", "Exportar CSV")).clicked() {
                     let out_path = PathBuf::from("benchmark_metrics.csv");
                     match self.export_reports_csv(&out_path) {
                         Ok(()) => self.export_feedback = Some(format!("Exported to {}", out_path.display())),
@@ -651,15 +687,15 @@ impl LauncherApp {
 
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(egui::RichText::new("Bandwidth Distribution (P2P vs Origin Fallback)").strong());
+                ui.label(egui::RichText::new(tr(self.language, "Bandwidth Distribution (P2P vs Origin Fallback)", "Distribuição de Banda (P2P vs Fallback do Origin)")).strong());
                 ui.add_space(6.0);
 
                 ui.horizontal(|ui| {
-                    ui.label("P2P Mesh Ratio:");
+                    ui.label(tr(self.language, "P2P Mesh Ratio:", "Proporção da Rede P2P:"));
                     ui.add(egui::ProgressBar::new(p2p_ratio).text(format!("{:.1}% P2P", report.p2p_percent())));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Origin Ratio:");
+                    ui.label(tr(self.language, "Origin Ratio:", "Proporção do Origin:"));
                     ui.add(egui::ProgressBar::new(origin_ratio).text(format!("{:.1}% Origin", report.origin_percent())));
                 });
 
@@ -675,11 +711,11 @@ impl LauncherApp {
                 });
             });
         } else {
-            ui.label(egui::RichText::new("No active report. Run a download test to populate metrics.").weak());
+            ui.label(egui::RichText::new(tr(self.language, "No active report. Run a download test to populate metrics.", "Nenhum relatório ativo. Execute um teste de download para preencher as métricas.")).weak());
         }
 
         ui.add_space(10.0);
-        ui.label(egui::RichText::new("Recent Fragment Transfer Log").strong());
+        ui.label(egui::RichText::new(tr(self.language, "Recent Fragment Transfer Log", "Log Recente de Transferência de Fragmentos")).strong());
         ui.add_space(4.0);
 
         egui::ScrollArea::vertical()
@@ -687,7 +723,7 @@ impl LauncherApp {
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 if self.fragment_logs.is_empty() {
-                    ui.label(egui::RichText::new("No fragment events recorded yet.").weak());
+                    ui.label(egui::RichText::new(tr(self.language, "No fragment events recorded yet.", "Nenhum evento de fragmento registrado ainda.")).weak());
                 } else {
                     for entry in self.fragment_logs.iter().rev() {
                         ui.horizontal(|ui| {
@@ -708,18 +744,18 @@ impl LauncherApp {
 
     fn render_schedule_loop_tab(&mut self, ui: &mut egui::Ui) {
         ui.add_space(10.0);
-        ui.heading("Synchronized Scheduling & Loop Testing");
+        ui.heading(tr(self.language, "Synchronized Scheduling & Loop Testing", "Agendamento Sincronizado e Loop de Testes"));
         ui.add_space(8.0);
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new("Synchronized Clock Trigger (Multi-Machine Sync)").strong());
+            ui.label(egui::RichText::new(tr(self.language, "Synchronized Clock Trigger (Multi-Machine Sync)", "Gatilho Sincronizado (Multi-Máquinas)")).strong());
             ui.add_space(4.0);
-            ui.label(egui::RichText::new("Set an exact local time to trigger simultaneous downloads on all machines:").small().weak());
+            ui.label(egui::RichText::new(tr(self.language, "Set an exact local time to trigger simultaneous downloads on all machines:", "Defina um horário local exato para acionar downloads simultâneos em todas as máquinas:")).small().weak());
             ui.add_space(6.0);
 
             ui.horizontal(|ui| {
-                ui.label("Trigger Time (HH:MM:SS):");
+                ui.label(tr(self.language, "Trigger Time (HH:MM:SS):", "Horário de Acionamento (HH:MM:SS):"));
                 ui.add(egui::TextEdit::singleline(&mut self.schedule_time_str).desired_width(100.0));
 
                 let current_time_str = Local::now().format("%H:%M:%S").to_string();
@@ -731,7 +767,7 @@ impl LauncherApp {
                         self.state = LauncherState::Idle;
                         self.status_text = "Schedule cancelled.".to_string();
                     }
-                } else if ui.button("Arm Synchronized Schedule").clicked() {
+                } else if ui.button(tr(self.language, "Arm Synchronized Schedule", "Armar Agendamento Sincronizado")).clicked() {
                     match NaiveTime::parse_from_str(&self.schedule_time_str, "%H:%M:%S") {
                         Ok(_) => {
                             self.schedule_active = true;
@@ -750,20 +786,20 @@ impl LauncherApp {
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new("Automated Loop Testing (Continuous Stress / Benchmark)").strong());
+            ui.label(egui::RichText::new(tr(self.language, "Automated Loop Testing (Continuous Stress / Benchmark)", "Testes em Loop Automatizados (Estresse Contínuo)")).strong());
             ui.add_space(6.0);
 
-            ui.checkbox(&mut self.loop_enabled, "Enable Multi-Cycle Loop Testing");
+            ui.checkbox(&mut self.loop_enabled, tr(self.language, "Enable Multi-Cycle Loop Testing", "Habilitar Testes em Loop Multi-Ciclos"));
             if self.loop_enabled {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label("Total Iterations:");
+                    ui.label(tr(self.language, "Total Iterations:", "Iterações Totais:"));
                     ui.add(egui::DragValue::new(&mut self.loop_total_cycles).range(1..=100));
                     ui.separator();
-                    ui.label("Cooldown Between Cycles (s):");
+                    ui.label(tr(self.language, "Cooldown Between Cycles (s):", "Intervalo Entre Ciclos (s):"));
                     ui.add(egui::DragValue::new(&mut self.loop_cooldown_seconds).range(1..=60));
                 });
-                ui.checkbox(&mut self.loop_auto_clean, "Auto-clean cache and files before each cycle");
+                ui.checkbox(&mut self.loop_auto_clean, tr(self.language, "Auto-clean cache and files before each cycle", "Limpar cache e arquivos automaticamente antes de cada ciclo"));
             }
         });
 
@@ -775,7 +811,7 @@ impl LauncherApp {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(format!("Completed Cycles ({})", self.reports_history.len())).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Clear History").clicked() {
+                        if ui.button(tr(self.language, "Clear History", "Limpar Histórico")).clicked() {
                             self.reports_history.clear();
                         }
                     });
@@ -836,11 +872,11 @@ impl LauncherApp {
                 ui.add_space(6.0);
 
                 ui.horizontal(|ui| {
-                    ui.label("Release Bucket:");
+                    ui.label(tr(self.language, "Release Bucket:", "Bucket do Release:"));
                     ui.add(egui::TextEdit::singleline(&mut self.input_bucket).desired_width(220.0));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Manifest Key:");
+                    ui.label(tr(self.language, "Manifest Key:", "Chave do Manifesto:"));
                     ui.add(egui::TextEdit::singleline(&mut self.input_manifest).desired_width(220.0));
                 });
             });
