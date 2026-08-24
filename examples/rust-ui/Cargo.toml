@@ -1,6 +1,6 @@
 [package]
 name = "pontemesh-game-launcher-ui"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fhfelipefh/pontemesh-game-launcher-example"
@@ -20,3 +20,4 @@ tokio = { version = "1.0", features = ["rt", "macros", "sync"] }
 dotenvy = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 image = { version = "0.24", features = ["jpeg"] }
+sysinfo = "0.33"

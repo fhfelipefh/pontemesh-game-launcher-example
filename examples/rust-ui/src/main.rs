@@ -14,6 +14,7 @@ use std::{
 use chrono::{Local, NaiveTime};
 use eframe::egui;
 use pontemesh_sdk_core::CancellationToken;
+use sysinfo::System;
 
 use config::LauncherConfig;
 use launcher::{FragmentLogEntry, GameLauncher, InstallReport, ProgressMessage};
@@ -114,6 +115,11 @@ struct LauncherApp {
     settings_feedback: Option<(bool, String)>,
     connection_test_feedback: Option<(bool, String)>,
     export_feedback: Option<String>,
+    peer_bytes: std::collections::HashMap<String, u64>,
+    sys: System,
+    cpu_usage: f32,
+    memory_used: u64,
+    memory_total: u64,
 }
 
 impl LauncherApp {
@@ -177,6 +183,11 @@ impl LauncherApp {
             settings_feedback: None,
             connection_test_feedback: None,
             export_feedback: None,
+            peer_bytes: std::collections::HashMap::new(),
+            sys: System::new_all(),
+            cpu_usage: 0.0,
+            memory_used: 0,
+            memory_total: 0,
         }
     }
 
@@ -246,6 +257,7 @@ impl LauncherApp {
         self.speed_bps = 0;
         self.current_file = String::new();
         self.error_message = None;
+        self.peer_bytes.clear();
 
         let (tx, rx): (Sender<ProgressMessage>, Receiver<ProgressMessage>) = channel();
         self.rx = Some(rx);
@@ -388,6 +400,11 @@ impl eframe::App for LauncherApp {
         let delta = now.duration_since(self.last_tick);
         if delta >= Duration::from_secs(1) {
             self.last_tick = now;
+            self.sys.refresh_cpu_usage();
+            self.sys.refresh_memory();
+            self.cpu_usage = self.sys.global_cpu_usage();
+            self.memory_used = self.sys.used_memory();
+            self.memory_total = self.sys.total_memory();
 
             if self.state == LauncherState::ScheduledWaiting && self.schedule_active {
                 if let Ok(target_time) = NaiveTime::parse_from_str(&self.schedule_time_str, "%H:%M:%S") {
@@ -434,6 +451,8 @@ impl eframe::App for LauncherApp {
                         self.current_file = file;
                     }
                     ProgressMessage::Fragment(log_item) => {
+                        *self.peer_bytes.entry(log_item.source.clone()).or_insert(0) += log_item.bytes;
+                        
                         if self.fragment_logs.len() > 300 {
                             self.fragment_logs.remove(0);
                         }
@@ -681,6 +700,31 @@ impl LauncherApp {
 
         ui.add_space(8.0);
 
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new(tr(self.language, "Hardware Monitor (Overhead)", "Monitoramento de Hardware (Overhead)")).strong());
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(tr(self.language, "CPU Usage:", "Uso de CPU:"));
+                let cpu_fraction = self.cpu_usage / 100.0;
+                ui.add(egui::ProgressBar::new(cpu_fraction).text(format!("{:.1}%", self.cpu_usage)));
+                
+                ui.separator();
+
+                ui.label(tr(self.language, "RAM Usage:", "Uso de RAM:"));
+                let mem_fraction = if self.memory_total > 0 {
+                    self.memory_used as f32 / self.memory_total as f32
+                } else {
+                    0.0
+                };
+                let mem_used_mb = self.memory_used as f64 / (1024.0 * 1024.0);
+                let mem_total_mb = self.memory_total as f64 / (1024.0 * 1024.0);
+                ui.add(egui::ProgressBar::new(mem_fraction).text(format!("{:.1} MB / {:.1} MB", mem_used_mb, mem_total_mb)));
+            });
+        });
+
+        ui.add_space(8.0);
+
         if let Some(report) = &self.report {
             let p2p_ratio = (report.p2p_percent() / 100.0) as f32;
             let origin_ratio = (report.origin_percent() / 100.0) as f32;
@@ -713,6 +757,34 @@ impl LauncherApp {
         } else {
             ui.label(egui::RichText::new(tr(self.language, "No active report. Run a download test to populate metrics.", "Nenhum relatório ativo. Execute um teste de download para preencher as métricas.")).weak());
         }
+
+        ui.add_space(10.0);
+
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new(tr(self.language, "Peer Topology & Source Bytes", "Topologia de Peers e Fontes")).strong());
+            ui.add_space(6.0);
+            if self.peer_bytes.is_empty() {
+                ui.label(egui::RichText::new(tr(self.language, "No data transferred yet.", "Nenhum dado transferido ainda.")).weak());
+            } else {
+                egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                    let mut sorted_peers: Vec<_> = self.peer_bytes.iter().collect();
+                    sorted_peers.sort_by(|a, b| b.1.cmp(a.1));
+                    for (source, bytes) in sorted_peers {
+                        ui.horizontal(|ui| {
+                            let source_color = if source.to_ascii_lowercase().contains("peer") {
+                                egui::Color32::LIGHT_GREEN
+                            } else {
+                                egui::Color32::LIGHT_BLUE
+                            };
+                            ui.label(egui::RichText::new(format!("[{}]", source)).color(source_color));
+                            let mb = **bytes as f64 / (1024.0 * 1024.0);
+                            ui.label(format!("{:.2} MB transferred", mb));
+                        });
+                    }
+                });
+            }
+        });
 
         ui.add_space(10.0);
         ui.label(egui::RichText::new(tr(self.language, "Recent Fragment Transfer Log", "Log Recente de Transferência de Fragmentos")).strong());
