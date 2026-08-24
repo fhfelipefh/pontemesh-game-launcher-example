@@ -27,6 +27,7 @@ pub struct FragmentLogEntry {
     pub total_bytes: u64,
     pub source: String,
     pub is_peer: bool,
+    pub bytes: u64,
 }
 
 pub enum ProgressMessage {
@@ -156,6 +157,7 @@ impl GameLauncher {
                     total_bytes: total,
                     source: source.to_string(),
                     is_peer,
+                    bytes: diff,
                 };
                 let _ = tx.send(ProgressMessage::Fragment(log_entry));
 
